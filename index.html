@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Monitor | Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #fafafa; }
+        .shadcn-card {
+            background: white;
+            border: 1px solid #e4e4e7;
+            border-radius: 0.75rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-10">
+    <div class="max-w-6xl mx-auto space-y-8">
+        <div class="flex flex-col gap-1">
+            <h1 class="text-3xl font-bold tracking-tight text-slate-900">System Dashboard</h1>
+            <p class="text-slate-500 text-sm">Real-time performance metrics and history.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="shadcn-card p-6">
+                <div class="flex justify-between items-center pb-2">
+                    <h3 class="text-sm font-medium text-slate-500">CPU Usage</h3>
+                    <i data-lucide="cpu" class="w-4 h-4 text-slate-400"></i>
+                </div>
+                <div class="text-2xl font-bold" id="cpu-current">0.0%</div>
+            </div>
+            <div class="shadcn-card p-6">
+                <div class="flex justify-between items-center pb-2">
+                    <h3 class="text-sm font-medium text-slate-500">RAM Usage</h3>
+                    <i data-lucide="hard-drive" class="w-4 h-4 text-slate-400"></i>
+                </div>
+                <div class="text-2xl font-bold" id="ram-current">0.0%</div>
+            </div>
+            <div class="shadcn-card p-6">
+                <div class="flex justify-between items-center pb-2">
+                    <h3 class="text-sm font-medium text-slate-500">Uptime</h3>
+                    <i data-lucide="clock" class="w-4 h-4 text-slate-400"></i>
+                </div>
+                <div class="text-sm font-semibold text-slate-700" id="uptime-text">Calculating...</div>
+            </div>
+        </div>
+
+        <div class="shadcn-card p-6">
+            <div class="pb-4">
+                <h3 class="text-lg font-semibold text-slate-900">Performance History</h3>
+                <p class="text-sm text-slate-500">Tracking the activity.</p>
+            </div>
+            <div class="h-[400px]">
+                <canvas id="statsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Chart Configuration
+        const ctx = document.getElementById('statsChart').getContext('2d');
+        const statsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'CPU %',
+                        borderColor: '#0f172a',
+                        backgroundColor: 'rgba(15, 23, 42, 0.05)',
+                        data: [],
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'RAM %',
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                        data: [],
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: {
+                    y: { beginAtZero: true, max: 100, grid: { display: false } },
+                    x: { grid: { display: false }, ticks: { display: false } }
+                }
+            }
+        });
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('http://localhost:8000/history');
+                const data = await response.json();
+
+                if (data.length > 0) {
+                    const latest = data[data.length - 1];
+
+                    // Update Stat Cards
+                    document.getElementById('cpu-current').innerText = latest.cpu.toFixed(1) + '%';
+                    document.getElementById('ram-current').innerText = latest.ram.toFixed(1) + '%';
+
+                    // Update Chart
+                    statsChart.data.labels = data.map(d => d.timestamp);
+                    statsChart.data.datasets[0].data = data.map(d => d.cpu);
+                    statsChart.data.datasets[1].data = data.map(d => d.ram);
+                    statsChart.update('none'); // Update without animation for smoothness
+                }
+            } catch (err) {
+                console.error("Connection to backend failed.");
+            }
+        }
+
+        // Fetch data every 5 seconds
+        setInterval(updateDashboard, 5000);
+        updateDashboard();
+    </script>
+</body>
+</html>
