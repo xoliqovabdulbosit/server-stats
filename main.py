@@ -1,36 +1,63 @@
+from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
 import psutil
 import sqlite3
-import threading
-import time
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+from datetime import datetime, timedelta
+from fastapi.responses import FileResponse
 
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    task = asyncio.create_task(metrics_logger())
+    yield
+    task.cancel()
 
-DB_NAME = "stats.db"
+app = FastAPI(lifespan=lifespan)
 
 def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, cpu REAL, ram REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    conn = sqlite3.connect('metrics.db')
+    conn.execute('''CREATE TABLE IF NOT EXISTS system_metrics
+                    (timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, cpu REAL, ram REAL, disk REAL)''')
+    conn.commit()
+    conn.close()
 
-def collect_stats():
+def log_metrics():
+    # Capture metrics
+    cpu = psutil.cpu_percent()
+    ram = psutil.virtual_memory().percent
+    disk = psutil.disk_usage('/').percent
+
+    conn = sqlite3.connect('metrics.db')
+    conn.execute("INSERT INTO system_metrics (cpu, ram, disk) VALUES (?, ?, ?)", (cpu, ram, disk))
+    conn.commit()
+    conn.close()
+
+async def metrics_logger():
     while True:
-        cpu = psutil.cpu_percent(interval=1)
-        ram = psutil.virtual_memory().percent
-        with sqlite3.connect(DB_NAME) as conn:
-            conn.execute("INSERT INTO stats (cpu, ram) VALUES (?, ?)", (cpu, ram))
-        time.sleep(60)  # Collect every minute
+        log_metrics()
+        await asyncio.sleep(60)
 
-@app.get("/history")
-def get_history():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute("SELECT cpu, ram, timestamp FROM stats ORDER BY timestamp DESC")
-        return [dict(row) for row in cursor.fetchall()][::-1] # Return in chronological order
+@app.get("/")
+async def read_index():
+    return FileResponse('index.html')
 
-if __name__ == "__main__":
-    init_db()
-    threading.Thread(target=collect_stats, daemon=True).start()
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/data/{period}")
+def get_data(period: str):
+    now = datetime.now()
+    if period == "today": start = now.replace(hour=0, minute=0, second=0)
+    elif period == "yesterday": start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0)
+    elif period == "week": start = now - timedelta(days=7)
+    elif period == "month": start = now - timedelta(days=30)
+    else: raise HTTPException(status_code=404, detail="Item not found")
+
+    conn = sqlite3.connect('metrics.db')
+    cursor = conn.execute("SELECT timestamp, cpu, ram, disk FROM system_metrics WHERE timestamp >= ?", (start,))
+    rows = cursor.fetchall()
+    conn.close()
+    return {
+        "labels": [r[0] for r in rows],
+        "cpu": [r[1] for r in rows],
+        "ram": [r[2] for r in rows],
+        "disk": [r[3] for r in rows]
+    }
