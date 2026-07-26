@@ -102,7 +102,9 @@
             try {
                 const res = await fetch(`${API_BASE}/data/${period}`);
                 const data = await res.json();
-                const labels = data.labels.map(ts => ts.split(' ')[1].substring(0, 5));
+
+                // FIXED: Handle daily format (YYYY-MM-DD) and hourly format (YYYY-MM-DD HH:MM:SS) safely
+                const labels = data.labels.map(ts => ts.includes(' ') ? ts.split(' ')[1].substring(0, 5) : ts.substring(5));
 
                 const update = (chart, values) => {
                     chart.data.labels = labels;
