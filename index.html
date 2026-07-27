@@ -6,40 +6,39 @@
     <title>System Monitor | Infrastructure</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .active-period { background-color: #111827 !important; color: white !important; }
-    </style>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans p-8">
 
     <!-- Config Button -->
     <div class="fixed top-6 right-8">
-        <button onclick="toggleConfig()" class="text-xs font-semibold text-gray-400 hover:text-black transition-colors">API Config</button>
+        <button type="button" onclick="toggleConfig()" class="text-xs font-semibold text-gray-400 hover:text-black transition-colors">API Config</button>
     </div>
 
     <!-- API Config Modal -->
-    <div id="configModal" class="hidden fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl">
+    <div id="configModal" class="hidden fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onclick="handleOutsideClick(event)">
+        <div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl" onclick="event.stopPropagation()">
             <h2 class="text-sm font-bold mb-4">Set API Endpoint</h2>
             <input type="text" id="apiUrlInput" class="w-full border border-gray-300 rounded p-2 text-sm mb-4" placeholder="http://localhost:8000">
             <div class="flex justify-end gap-2">
-                <button onclick="toggleConfig()" class="px-3 py-1 text-xs font-medium text-gray-500">Cancel</button>
-                <button onclick="saveApiUrl()" class="px-3 py-1 text-xs font-medium bg-black text-white rounded">Save</button>
+                <button type="button" onclick="toggleConfig()" class="px-3 py-1 text-xs font-medium text-gray-500">Cancel</button>
+                <button type="button" onclick="saveApiUrl()" class="px-3 py-1 text-xs font-medium bg-black text-white rounded">Save</button>
             </div>
         </div>
     </div>
 
     <div class="max-w-4xl mx-auto">
-        <header class="mb-10 flex items-center justify-between">
+        <header class="mb-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
                 <h1 class="text-xl font-bold tracking-tight">System Monitor</h1>
                 <p class="text-xs text-gray-400 uppercase tracking-widest mt-1">Real-time infrastructure performance</p>
+                <p id="connectionStatus" class="text-[10px] text-gray-400 mt-1 transition-colors"></p>
             </div>
 
-            <nav class="flex p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <button onclick="updateDashboard(this, 'today')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all active-period">Today</button>
-                <button onclick="updateDashboard(this, 'week')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all text-gray-600 hover:bg-gray-100">Week</button>
-                <button onclick="updateDashboard(this, 'month')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all text-gray-600 hover:bg-gray-100">Month</button>
+            <nav id="periodNav" class="flex p-1 bg-white border border-gray-200 rounded-lg shadow-sm w-fit">
+                <button type="button" onclick="changePeriod(this, 'today')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all bg-gray-900 text-white">Today</button>
+                <button type="button" onclick="changePeriod(this, 'yesterday')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all text-gray-600 hover:bg-gray-100">Yesterday</button>
+                <button type="button" onclick="changePeriod(this, 'week')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all text-gray-600 hover:bg-gray-100">Week</button>
+                <button type="button" onclick="changePeriod(this, 'month')" class="period-btn px-4 py-1.5 text-xs font-medium rounded-md transition-all text-gray-600 hover:bg-gray-100">Month</button>
             </nav>
         </header>
 
@@ -62,14 +61,27 @@
     <script>
         // State
         let API_BASE = localStorage.getItem('api_url') || 'http://localhost:8000';
+        let currentPeriod = 'today';
         document.getElementById('apiUrlInput').value = API_BASE;
 
-        // Chart Initialization
-        const createChart = (id, color) => new Chart(document.getElementById(id).getContext('2d'), {
+        // Chart Initialization (accepting explicit border and fill colors)
+        const createChart = (id, borderColor, fillColor) => new Chart(document.getElementById(id).getContext('2d'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: color, tension: 0.4, borderWidth: 2, pointRadius: 0, fill: true, backgroundColor: color + '08' }] },
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: borderColor,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    backgroundColor: fillColor
+                }]
+            },
             options: {
-                responsive: true, maintainAspectRatio: false,
+                responsive: true,
+                maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
                     y: { beginAtZero: true, max: 100, ticks: { font: { size: 10 } }, grid: { color: '#f9fafb' } },
@@ -78,33 +90,73 @@
             }
         });
 
-        const cpuChart = createChart('cpuChart', '#111827');
-        const ramChart = createChart('ramChart', '#4b5563');
-        const diskChart = createChart('diskChart', '#9ca3af');
+        const cpuChart = createChart('cpuChart', '#111827', 'rgba(17, 24, 39, 0.05)');
+        const ramChart = createChart('ramChart', '#4b5563', 'rgba(75, 85, 99, 0.05)');
+        const diskChart = createChart('diskChart', '#9ca3af', 'rgba(156, 163, 175, 0.05)');
 
-        // Logic
         function toggleConfig() {
             document.getElementById('configModal').classList.toggle('hidden');
         }
 
-        function saveApiUrl() {
-            API_BASE = document.getElementById('apiUrlInput').value;
-            localStorage.setItem('api_url', API_BASE);
+        function handleOutsideClick(event) {
             toggleConfig();
-            const active = document.querySelector('.active-period');
-            updateDashboard(active, active.innerText.toLowerCase());
         }
 
-        async function updateDashboard(btn, period) {
-            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active-period'));
-            btn.classList.add('active-period');
+        // Close modal on Escape key press
+        window.addEventListener('keydown', (e) => {
+            const modal = document.getElementById('configModal');
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                toggleConfig();
+            }
+        });
 
+        function saveApiUrl() {
+            const val = document.getElementById('apiUrlInput').value.trim();
+            API_BASE = val || 'http://localhost:8000';
+            localStorage.setItem('api_url', API_BASE);
+            toggleConfig();
+            updateDashboard(currentPeriod);
+        }
+
+        // Safely toggle dynamic active classes without overwriting static classes
+        function setButtonActiveState(targetBtn) {
+            document.querySelectorAll('.period-btn').forEach(btn => {
+                btn.classList.remove('bg-gray-900', 'text-white');
+                btn.classList.add('text-gray-600', 'hover:bg-gray-100');
+            });
+            targetBtn.classList.add('bg-gray-900', 'text-white');
+            targetBtn.classList.remove('text-gray-600', 'hover:bg-gray-100');
+        }
+
+        function changePeriod(btn, period) {
+            currentPeriod = period;
+            setButtonActiveState(btn);
+            updateDashboard(period);
+        }
+
+        async function updateDashboard(period) {
+            const statusEl = document.getElementById('connectionStatus');
             try {
                 const res = await fetch(`${API_BASE}/data/${period}`);
-                const data = await res.json();
+                if (!res.ok) throw new Error(`HTTP status ${res.status}`);
 
-                // FIXED: Handle daily format (YYYY-MM-DD) and hourly format (YYYY-MM-DD HH:MM:SS) safely
-                const labels = data.labels.map(ts => ts.includes(' ') ? ts.split(' ')[1].substring(0, 5) : ts.substring(5));
+                const data = await res.json();
+                statusEl.textContent = "Connected";
+                statusEl.className = "text-[10px] text-green-500 mt-1";
+
+                const labelsRaw = data?.labels || [];
+                const cpuData = data?.cpu || [];
+                const ramData = data?.ram || [];
+                const diskData = data?.disk || [];
+
+                // Safe conversion and fallback for time formatting
+                const labels = labelsRaw.map(ts => {
+                    const str = String(ts || '');
+                    if (str.includes(' ')) {
+                        return str.split(' ')[1].substring(0, 5);
+                    }
+                    return str.length > 5 ? str.substring(5) : str;
+                });
 
                 const update = (chart, values) => {
                     chart.data.labels = labels;
@@ -112,19 +164,22 @@
                     chart.update();
                 };
 
-                update(cpuChart, data.cpu);
-                update(ramChart, data.ram);
-                update(diskChart, data.disk);
+                update(cpuChart, cpuData);
+                update(ramChart, ramData);
+                update(diskChart, diskData);
             } catch (err) {
                 console.error("Failed to fetch data:", err);
+                statusEl.textContent = `Offline: Connection failed`;
+                statusEl.className = "text-[10px] text-red-500 mt-1";
             }
         }
 
-        // Initial Load & Refresh
-        updateDashboard(document.querySelector('.period-btn'), 'today');
+        // Initial Load
+        updateDashboard(currentPeriod);
+
+        // Refresh loop
         setInterval(() => {
-            const active = document.querySelector('.active-period');
-            updateDashboard(active, active.innerText.toLowerCase());
+            updateDashboard(currentPeriod);
         }, 60000);
     </script>
 </body>
