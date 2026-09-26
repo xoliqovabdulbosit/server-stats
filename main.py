@@ -15,19 +15,39 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+import os
+import logging
+from pathlib import Path
+
+logger = logging.getLogger("uvicorn.error")
+
+DB_PATH = os.getenv("DB_PATH", "metrics.db")
+INDEX_PATH = Path(__file__).resolve().parent / "index.html"
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=20.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
 def init_db():
-    conn = sqlite3.connect('metrics.db')
-    conn.execute('''CREATE TABLE IF NOT EXISTS system_metrics
-                    (timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, cpu REAL, ram REAL, disk REAL)''')
-    conn.commit()
+    db_file = Path(DB_PATH)
+    if db_file.parent and not db_file.parent.exists():
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = get_db()
+    with conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS system_metrics
+                        (timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, cpu REAL, ram REAL, disk REAL)''')
+        conn.execute('''CREATE INDEX IF NOT EXISTS idx_system_metrics_timestamp 
+                        ON system_metrics(timestamp)''')
     conn.close()
 
 def clean_old_metrics(days: int = 30):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
-    conn = sqlite3.connect('metrics.db')
-    conn.execute("DELETE FROM system_metrics WHERE timestamp < ?", (cutoff_str,))
-    conn.commit()
+    conn = get_db()
+    with conn:
+        conn.execute("DELETE FROM system_metrics WHERE timestamp < ?", (cutoff_str,))
     conn.close()
 
 def log_metrics():
@@ -36,28 +56,40 @@ def log_metrics():
     ram = psutil.virtual_memory().percent
     disk = psutil.disk_usage('/').percent
 
-    conn = sqlite3.connect('metrics.db')
-    conn.execute("INSERT INTO system_metrics (cpu, ram, disk) VALUES (?, ?, ?)", (cpu, ram, disk))
-    conn.commit()
+    conn = get_db()
+    with conn:
+        conn.execute("INSERT INTO system_metrics (cpu, ram, disk) VALUES (?, ?, ?)", (cpu, ram, disk))
     conn.close()
 
 async def metrics_logger():
     # Run initial cleanup on startup
-    clean_old_metrics()
+    try:
+        clean_old_metrics()
+    except Exception as e:
+        logger.error(f"Error during startup metrics cleanup: {e}")
+
     cleanup_counter = 0
 
     while True:
-        log_metrics()
-        cleanup_counter += 1
-        # Run cleanup approximately once an hour (every 60 iterations * 60s)
-        if cleanup_counter >= 60:
-            clean_old_metrics()
-            cleanup_counter = 0
+        try:
+            log_metrics()
+            cleanup_counter += 1
+            # Run cleanup approximately once an hour (every 60 iterations * 60s)
+            if cleanup_counter >= 60:
+                clean_old_metrics()
+                cleanup_counter = 0
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error capturing system metrics: {e}")
+
         await asyncio.sleep(60)
 
 @app.get("/")
 async def read_index():
-    return FileResponse('index.html')
+    if not INDEX_PATH.exists():
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse(INDEX_PATH)
 
 @app.get("/data/{period}")
 def get_data(period: str):
@@ -131,7 +163,7 @@ def get_data(period: str):
     else:
         raise HTTPException(status_code=404, detail="Period not found")
 
-    conn = sqlite3.connect('metrics.db')
+    conn = get_db()
     cursor = conn.execute(query, params)
     rows = cursor.fetchall()
     conn.close()

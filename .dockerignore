@@ -1,0 +1,6 @@
+__pycache__/
+venv/
+metrics.db
+.DS_Store
+.git/
+.gitignore
