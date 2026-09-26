@@ -6,6 +6,7 @@
     <title>System Monitor | Infrastructure</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans p-8">
 
@@ -64,7 +65,7 @@
         let currentPeriod = 'today';
         document.getElementById('apiUrlInput').value = API_BASE;
 
-        // Chart Initialization (accepting explicit border and fill colors)
+        // Chart Initialization (with Zoom & Pan Plugin enabled)
         const createChart = (id, borderColor, fillColor) => new Chart(document.getElementById(id).getContext('2d'), {
             type: 'line',
             data: {
@@ -82,7 +83,22 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: {
+                    legend: { display: false },
+                    // Configure Zoom Plugin settings
+                    zoom: {
+                        zoom: {
+                            wheel: { enabled: true }, // Scroll to zoom
+                            pinch: { enabled: true }, // Pinch to zoom on mobile
+                            mode: 'x',                // Zoom only along the X-axis (time/labels)
+                            drag: { enabled: true, backgroundColor: 'rgba(0,0,0,0.05)' } // Click & drag selection
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',                // Pan across X-axis
+                        }
+                    }
+                },
                 scales: {
                     y: { beginAtZero: true, max: 100, ticks: { font: { size: 10 } }, grid: { color: '#f9fafb' } },
                     x: { ticks: { font: { size: 10 } }, grid: { display: false } }
@@ -149,7 +165,6 @@
                 const ramData = data?.ram || [];
                 const diskData = data?.disk || [];
 
-                // Safe conversion and fallback for time formatting
                 const labels = labelsRaw.map(ts => {
                     const str = String(ts || '');
                     if (str.includes(' ')) {
